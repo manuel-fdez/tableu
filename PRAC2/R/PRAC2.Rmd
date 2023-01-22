@@ -1,0 +1,208 @@
+---
+title: 'PRAC1 - Visualización de datos'
+author: "Autor: Manuel Fernández"
+date: "Diciembre 2022"
+output:
+  pdf_document: 
+    highlight: zenburn
+    toc: yes
+    keep_tex: yes
+  html_document:
+    highlight: default
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_depth: 2
+  word_document: default
+---
+
+Cargamos las librerías que emplearemos durante el ejercicio.
+```{r setup, include=FALSE}
+if(!require("knitr")){
+  install.packages('knitr') 
+}
+library(knitr)
+
+if(!require("magrittr")){
+  install.packages('magrittr') 
+}
+library(magrittr)
+
+if(!require("dplyr")){
+  install.packages('dplyr') 
+}
+library(dplyr)
+
+knitr::opts_chunk$set(echo = TRUE)
+options(width = 100)
+```
+
+Cargamos el conjunto de datos COVID-19 y vemos la dimesión del mismo
+```{r}
+df_covid <- read.csv("./data/covid.csv",sep=",", na.strings="",stringsAsFactors=FALSE)
+dim(df_covid)
+```
+
+Miramos estádisticos básicos para las variables del conjunto de datos
+
+```{r}
+summary(df_covid)
+```
+
+
+Vemos que el conjunto de datos dispone de muchos nulos. 
+Guardamos el total de filas en una variable, para poder calcular el porcentaje de valores faltantes por cada columna.
+```{r}
+df_size <- count(df_covid)$n
+df_size
+```
+
+Vemos cuantos valores perdidos tenemos en el conjunto de datos
+```{r}
+colSums(is.na(df_covid))
+```
+
+Vamos a ver el porcentaje de datos que no tienen nulos.
+```{r}
+covid_not_nil <- sapply(df_covid, function(x) sum(!is.na(x))/df_size * 100)
+covid_not_nil
+```
+
+Creamos un subconjunto con las columnas que son susceptibles de ser empleadas en el estudio.
+```{r}
+df <- df_covid[,c("iso_code"
+                  ,"continent"
+                  ,"location"
+                  ,"date"
+                  ,"total_cases"
+                  ,"new_cases"
+                  ,"total_deaths"
+                  ,"new_deaths"
+                  ,"people_vaccinated"
+                  ,"people_fully_vaccinated"
+                  ,"new_vaccinations"
+                  ,"population_density"
+                  ,"median_age"
+                  ,"aged_65_older"
+                  ,"aged_70_older"
+                  ,"gdp_per_capita"
+                  ,"extreme_poverty"
+                  ,"cardiovasc_death_rate"
+                  ,"diabetes_prevalence"
+                  ,"male_smokers"
+                  ,"female_smokers"
+                  ,"life_expectancy"
+                  ,"population")
+               ]
+```
+
+
+Cargamos el conjunto de datos de los vuelos
+```{r}
+df_vuelos <- read.csv("./data/airports.csv",sep=",", na.strings="",stringsAsFactors=FALSE)
+summary(df_vuelos)
+```
+
+Vemos que el conjunto de vuelos no tiene nulos.
+
+```{r}
+df_num_airports <- as.data.frame(table(df_vuelos$Country))
+head(df_num_airports)
+```
+```{r}
+names(df_num_airports)[1]<-"country"
+names(df_num_airports)[2]<-"num_airports"
+colnames(df_num_airports)
+```
+
+Extraemos las localizaciones que tenemos del conjunto de datos.
+
+```{r}
+uniques_locations <- unique(df$location)
+```
+
+Vamos a comparar los paises del cojunto de datos "aeropuerto" con las localizaciones covid.
+Comparamos ambos valores empleando la distancia *levenshtein*.
+
+Antes cargamos las librerías necesarias:
+```{r}
+if(!require("stringdist")){
+  install.packages('stringdist') 
+}
+library(stringdist)
+```
+
+```{r}
+df_num_airports$equivalente<-""
+df_num_airports$levenshtein<-99
+
+for (i in 1:nrow(df_num_airports)) {
+  for (j in 1:length(uniques_locations)){
+    country<-as.character(df_num_airports[i, "country"])
+    location<-as.character(uniques_locations[j])
+    levenshtein <- stringdist(country,location,method = "lv")
+     if (levenshtein<=df_num_airports[i, "levenshtein"]){
+      df_num_airports[i,"equivalente"]<-location
+      df_num_airports[i,"levenshtein"]<-levenshtein
+    }
+  }
+}
+```
+
+Vemos aquellos que tiene una distancia *levenshtein* menor o igual a dos. 
+```{r}
+head(df_num_airports[df_num_airports$levenshtein<=2,])
+```
+Quitamos aquellos nombres que tienen una distancia *levenshtein* alta
+
+```{r}
+df_num_airports$equivalente[df_num_airports$levenshtein>1] <- NA
+```
+
+Vemos los que se quedaron fuera
+```{r}
+countries_out <- uniques_locations[!(uniques_locations %in% df_num_airports$equivalent)]
+countries_out
+```
+
+Extramos los datos que vamos a usar del conjunto de vuelos, para juntarlo con el dataset del COVID-19.
+```{r}
+df_num_airports_clean <- df_num_airports[!is.na(df_num_airports$equivalente),c("num_airports","equivalente")]
+colnames(df_num_airports_clean)<-c("airports","location")
+head(df_num_airports_clean)
+```
+
+Por curiosidad, veamos a ver los paises que tiene más vuelos
+```{r}
+head(df_num_airports_clean[order(-df_num_airports_clean$airports),])
+```
+Y a continuación el pais que tiene más nuevos casos
+```{r}
+df[order(-df$new_cases),c("location")][1]
+```
+
+Juntamos ambos conjuntos de datos
+
+```{r}
+df <- merge(x = df, y = df_num_airports_clean, by = "location")
+head(df)
+```
+Ahora vemos que dentro del dataset original disponemos del número de aeropuertos:
+
+```{r}
+head(df[,c("airports","new_cases","date","location")])
+```
+Para el análisis emplearemos este conjunto de datos:
+```{r}
+summary(df)
+```
+
+```{r}
+head(df,10)
+```
+
+
+```{r}
+write.csv(df,"./data/clean_dataset.csv")
+```
+
